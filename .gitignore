@@ -186,3 +186,5 @@ venv/
 # data
 *.bin
 *.jsonl
+
+data/*
