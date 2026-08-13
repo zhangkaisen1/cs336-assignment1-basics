@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import math 
+from einops import rearrange,einsum
 
 class Linear(nn.Module):
     def __init__(
@@ -185,7 +186,7 @@ def scaled_dot_product_attention(
     # mask
     if mask is not None:
         softmax_v = softmax_v.masked_fill(
-            ~mask,
+            mask == 0,
             float("-inf"),
         )
     attention_weights = softmax(
@@ -194,3 +195,58 @@ def scaled_dot_product_attention(
     )
 
     return attention_weights @ V
+
+class multihead_self_attention(nn.Module):
+    def __init__(
+        self,
+        d_model:int,
+        num_heads:int,
+        if_RoPE:bool = False,
+        max_seq_len: int = 4096, 
+        theta: float = 10000.0
+    ):
+        assert d_model % num_heads == 0
+
+        super().__init__()
+        self.d_model = d_model
+        self.h = num_heads
+        self.d_k = d_model // num_heads
+
+        self.q_proj_weight = Linear(d_model, d_model)
+        self.k_proj_weight = Linear(d_model, d_model)
+        self.v_proj_weight = Linear(d_model, d_model)
+
+        self.o_proj_weight = Linear(d_model, d_model)
+        self.if_RoPE = if_RoPE
+
+        if self.if_RoPE == True:
+            self.rope = RotaryPositionalEmbedding(theta = theta, d_k = self.d_k, max_seq_len = max_seq_len)
+    
+    def forward(
+        self,
+        x:torch.Tensor,
+        token_positions=None
+    ) -> torch.Tensor:
+        seq_len = x.size(1)
+        q = self.q_proj_weight(x)
+        k = self.k_proj_weight(x)
+        v = self.v_proj_weight(x)
+        # multi head
+        q = rearrange(q, '... seq_len (h d) -> ... h seq_len d', h = self.h)
+        k = rearrange(k, '... seq_len (h d) -> ... h seq_len d', h = self.h)
+        v = rearrange(v, '... seq_len (h d) -> ... h seq_len d', h = self.h)
+        ## rope
+        if self.if_RoPE == True and token_positions is not None:
+            q = self.rope(q, token_positions)
+            k = self.rope(k, token_positions)
+
+        # 变为下三角
+        mask = torch.ones((seq_len, seq_len), device=x.device).tril()
+        mask = rearrange(mask, 'T1 T2 -> 1 1 T1 T2')
+
+        xo = scaled_dot_product_attention(q, k, v, mask)
+        xo = rearrange(xo, '... h seq_len d -> ... seq_len (h d)')
+        return self.o_proj_weight(xo)
+
+
+
