@@ -14,7 +14,7 @@ class Linear(nn.Module):
     # initialize nn.Parameter
         super().__init__()
         # initialize w as para
-        self.w = nn.Parameter(
+        self.weight = nn.Parameter(
             torch.empty(
                 out_features,
                 in_features,
@@ -23,16 +23,16 @@ class Linear(nn.Module):
             )
         )
         sigma = math.sqrt(2 / (in_features + out_features))
-        nn.init.trunc_normal_(self.w, 0.0, sigma, -3.0 * sigma, 3.0 * sigma)
+        nn.init.trunc_normal_(self.weight, 0.0, sigma, -3.0 * sigma, 3.0 * sigma)
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor :
-        return x @ self.w.T
+        return x @ self.weight.T
 
 class Embedding(nn.Module):
     def __init__(self, num_embeddings, embedding_dim, device=None, dtype=None):
         super().__init__()
-        self.w = nn.Parameter(
+        self.weight = nn.Parameter(
             torch.empty(
                 num_embeddings,
                 embedding_dim,
@@ -40,10 +40,10 @@ class Embedding(nn.Module):
                 dtype=dtype
             )
         )
-        nn.init.trunc_normal_(self.w, 0.0, 1.0, -3.0, 3.0)
+        nn.init.trunc_normal_(self.weight, 0.0, 1.0, -3.0, 3.0)
     
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
-        return self.w[token_ids]
+        return self.weight[token_ids]
 
 class RMSNorm(nn.Module):
     def __init__(
@@ -56,14 +56,14 @@ class RMSNorm(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.eps = eps
-        self.g = nn.Parameter(
+        self.weight = nn.Parameter(
             torch.empty(
                 d_model,
                 device=device,
                 dtype=dtype
             )
         )
-        nn.init.ones_(self.g)
+        nn.init.ones_(self.weight)
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -73,7 +73,7 @@ class RMSNorm(nn.Module):
             torch.mean(x ** 2, dim=-1, keepdim=True)
             + self.eps
         )
-        return (x / RMSa * self.g).to(in_dtype)
+        return (x / RMSa * self.weight).to(in_dtype)
 
 class SwiGLU(nn.Module):
     def __init__(self, d_model, d_ff):
@@ -196,14 +196,15 @@ def scaled_dot_product_attention(
 
     return attention_weights @ V
 
-class multihead_self_attention(nn.Module):
+class MultiheadSelfAttention(nn.Module):
     def __init__(
         self,
         d_model:int,
         num_heads:int,
         if_RoPE:bool = False,
         max_seq_len: int = 4096, 
-        theta: float = 10000.0
+        theta: float = 10000.0,
+        **kwargs
     ):
         assert d_model % num_heads == 0
 
@@ -212,11 +213,11 @@ class multihead_self_attention(nn.Module):
         self.h = num_heads
         self.d_k = d_model // num_heads
 
-        self.q_proj_weight = Linear(d_model, d_model)
-        self.k_proj_weight = Linear(d_model, d_model)
-        self.v_proj_weight = Linear(d_model, d_model)
+        self.q_proj = Linear(d_model, d_model)
+        self.k_proj = Linear(d_model, d_model)
+        self.v_proj = Linear(d_model, d_model)
 
-        self.o_proj_weight = Linear(d_model, d_model)
+        self.output_proj = Linear(d_model, d_model)
         self.if_RoPE = if_RoPE
 
         if self.if_RoPE == True:
@@ -228,15 +229,21 @@ class multihead_self_attention(nn.Module):
         token_positions=None
     ) -> torch.Tensor:
         seq_len = x.size(1)
-        q = self.q_proj_weight(x)
-        k = self.k_proj_weight(x)
-        v = self.v_proj_weight(x)
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
         # multi head
         q = rearrange(q, '... seq_len (h d) -> ... h seq_len d', h = self.h)
         k = rearrange(k, '... seq_len (h d) -> ... h seq_len d', h = self.h)
         v = rearrange(v, '... seq_len (h d) -> ... h seq_len d', h = self.h)
         ## rope
-        if self.if_RoPE == True and token_positions is not None:
+        if self.if_RoPE == True:
+            if token_positions is None:
+                token_positions = torch.arange(
+                    x.shape[-2],
+                    device=x.device
+                )
+                
             q = self.rope(q, token_positions)
             k = self.rope(k, token_positions)
 
@@ -246,7 +253,77 @@ class multihead_self_attention(nn.Module):
 
         xo = scaled_dot_product_attention(q, k, v, mask)
         xo = rearrange(xo, '... h seq_len d -> ... seq_len (h d)')
-        return self.o_proj_weight(xo)
+        return self.output_proj(xo)
 
+# wait to alter
+class TransformerBlock(nn.Module):
+    def __init__(
+        self,
+        d_model:int,
+        num_heads:int,
+        d_ff:int,
+        max_seq_len: int = 4096, 
+        theta: float = 10000.0,
+        **kwargs
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_ff = d_ff
+        self.attn = MultiheadSelfAttention(
+            d_model=d_model, 
+            num_heads=num_heads, 
+            if_RoPE=True, 
+            max_seq_len=max_seq_len, 
+            theta=theta
+        )
+        self.ffn = SwiGLU(d_model, d_ff)
+        self.ln1 = RMSNorm(self.d_model) 
+        self.ln2 = RMSNorm(self.d_model) 
+    
+    def forward(
+        self,
+        x:torch.Tensor,
+        token_positions=None,
+    ) -> torch.Tensor:
+
+        y = x + self.attn(self.ln1(x), token_positions)
+        o = y + self.ffn(self.ln2(y))
+
+        return o
+
+# wait to alter
+class TransformerLM(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        d_model: int,
+        num_layers: int,
+        num_heads: int,
+        d_ff: int,
+        rope_theta: float = 10000.0,
+    ):
+        super().__init__()
+        self.token_embeddings = Embedding(vocab_size, d_model)
+        self.layers = nn.ModuleList([
+            TransformerBlock(
+                d_model, num_heads, d_ff, context_length, rope_theta
+            ) for _ in range(num_layers)
+        ])
+        self.ln_final = RMSNorm(d_model)
+        self.lm_head = Linear(d_model, vocab_size)
+
+    def forward(
+        self, 
+        token_ids:torch.Tensor, 
+        token_positions: torch.Tensor = None
+    ) -> torch.Tensor:
+        x = self.token_embeddings(token_ids)
+        for layer in self.layers:
+            x = layer(x, token_positions)
+        x = self.ln_final(x)
+        y = self.lm_head(x)
+        return y
 
 
