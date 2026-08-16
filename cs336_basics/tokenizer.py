@@ -32,13 +32,6 @@ class Tokenizer:
     merges_filepath: str  
     special_tokens: list[str] | None = None  
     '''
-    def _get_id(self, token : bytes) -> int:
-        for id, t in self.vocab.items():
-            #print(f"token = {token}, vocab = {t}")
-            if (t == token):
-                return id
-        return -1
-
 
     def _merge_pair(
         self, token_bytes: list[bytes], pair: tuple[bytes, bytes], new_token: bytes
@@ -56,7 +49,14 @@ class Tokenizer:
 
     def encode(self, text: str) -> list[int]: # Encode an input text into a sequence of token IDs.
     # pre_tokenization
+    # sorted to match longer special_token first, pass overlap_token test
         if self.special_tokens:
+            if self.special_tokens is not None:
+                self.special_tokens = sorted(
+                    self.special_tokens,
+                    key=len,
+                    reverse=True,
+                )
             special_pattern = "|".join(
                 re.escape(token)
                 for token in self.special_tokens
@@ -74,7 +74,7 @@ class Tokenizer:
         for chunk in chunks:
             # deal with special tokens
             if chunk in self.special_tokens:
-                token_id = self._get_id(chunk.encode("utf-8"))
+                token_id = self.vocab_reversed.get(chunk.encode("utf-8"))
                 encoded_result.append(token_id)
                 continue
             
@@ -103,16 +103,6 @@ class Tokenizer:
 
         return encoded_result
 
-                # b = 0
-                # e = len(pre_tokens)
-                # while b < e:
-                #     id = self._get_id(pre_tokens[b: e])
-                #     if id == -1:
-                #         e -= 1
-                #     else:
-                #         encoded_result.append(id)
-                #         b = e
-                #         e = len(pre_tokens)
 
     def decode(self, ids: list[int]) -> str: # Decode a sequence of token IDs into text.
         decoded_bytes = b"".join(
@@ -127,13 +117,6 @@ class Tokenizer:
             for token_id in self.encode(text):
                 yield token_id
 
-
-'''
-    Given an iterable of 
-    strings (e.g., a Python file handle), return a generator that lazily yields token IDs. This is 
-    required for memory-efficient tokenization of large files that we cannot directly load into 
-    memory.
-'''
     
 
 
@@ -154,7 +137,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-'''
-[32423, 1004,...00, 2059, ...]
-[32423, 406, ...00, 2059, ...]
-'''

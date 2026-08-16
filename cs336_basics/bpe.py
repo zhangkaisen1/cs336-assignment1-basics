@@ -5,7 +5,7 @@ import regex as re
 from collections import defaultdict
 
 #for test
-i_path = "/home/kaisen_zhang/projects/cs336/assignments/assignment1-basics/tests/fixtures/corpus.en"
+i_path = "/home/*/projects/cs336/assignments/assignment1-basics/tests/fixtures/corpus.en"
 special_token=["<|endoftext|>"]
 
 class BPETokenizer:
@@ -41,7 +41,12 @@ class TrainBPE:
         # read file
         f = open(self.input_path, 'r')
         corpus = f.read()
-
+        if self.special_tokens is not None:
+            self.special_tokens = sorted(
+                self.special_tokens,
+                key=len,
+                reverse=True,
+            )
         # delete special tokens
         special_pattern = "|".join(
             re.escape(token)
