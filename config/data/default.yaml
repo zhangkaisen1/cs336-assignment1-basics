@@ -1,0 +1,2 @@
+path: data/tinystory # Directory containing train.bin and val.bin
+tokenizer_path: data/tinystory/tokenizer.json

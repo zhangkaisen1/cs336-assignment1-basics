@@ -1,0 +1,7 @@
+defaults:
+  - hydra: default
+  - data: default
+  - model: default
+  - optimizer: default
+  - training: default
+  - _self_

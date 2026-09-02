@@ -23,15 +23,34 @@ class Tokenizer:
 
         self._PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""" # GPT2正则化
 
-    # def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None): 
-    '''
-    Class method that constructs and returns a Tokenizer from a serialized vocabulary and list of merges (in the 
-    same format that your BPE training code output) and (optionally) a list of special tokens. 
-    This method should accept the following additional parameters:
-    vocab_filepath: str  
-    merges_filepath: str  
-    special_tokens: list[str] | None = None  
-    '''
+    @classmethod
+    def from_files(cls, vocab_filepath: str, merges_filepath: str, special_tokens: list[str] | None = None) -> "Tokenizer":
+        """
+        Construct a Tokenizer from serialized vocabulary and merges files.
+
+        Args:
+            vocab_filepath (str): Path to the vocabulary file (from BPE training).
+            merges_filepath (str): Path to the merges file (from BPE training).
+            special_tokens (list[str] | None): Optional list of special tokens to include.
+
+        Returns:
+            Tokenizer: A Tokenizer instance initialized with the given files.
+        """
+        vocab: dict[int, bytes] = {}
+        with open(vocab_filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                id_str, token_str = line.strip().split("\t")
+                vocab[int(id_str)] = eval(token_str).encode("utf-8")
+
+        merges: list[tuple[bytes, bytes]] = []
+        with open(merges_filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) == 2:
+                    merges.append((eval(parts[0]).encode("utf-8"), eval(parts[1]).encode("utf-8")))
+
+        return cls(vocab=vocab, merges=merges, special_tokens=special_tokens)
+
 
     def _merge_pair(
         self, token_bytes: list[bytes], pair: tuple[bytes, bytes], new_token: bytes

@@ -1,0 +1,32 @@
+data:
+  path: data/tinystories
+  tokenizer_path: hf_tokenizer/tinystories/tokenizer.json
+model:
+  vocab_size: 10000
+  context_length: 256
+  d_model: 512
+  num_layers: 4
+  num_heads: 16
+  d_ff: 1344
+  rope_theta: 10000
+optimizer:
+  max_lr: 0.0003
+  min_lr: null
+  warmup_iters: null
+  max_l2_norm: 1.0
+  weight_decay: 0.01
+  betas:
+  - 0.9
+  - 0.999
+  eps: 1.0e-08
+training:
+  seed: 1337
+  is_compile: true
+  batch_size: 256
+  max_iters: null
+  log_interval: 10
+  eval_interval: 500
+  eval_iters: 200
+  resume_from: null
+  out_dir: outputs
+  save_ckpt: false
